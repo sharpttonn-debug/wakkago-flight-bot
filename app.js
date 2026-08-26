@@ -35,7 +35,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
             return;
         }
 
-        // Exhaustive structural fallbacks to find phone & message across all WaSender variants
+        // Flexible structural fallbacks to locate attributes across WaSender versions
         const dataContainer = payload.message || payload.data || payload;
         const contactDetails = payload.sender || payload.contact || {};
 
@@ -88,14 +88,14 @@ async function processFlightBotFlow(phone, text) {
             temperature: 0.1
         });
 
-        // DUAL-COMPATIBILITY SAFE EXTRACTOR (Bypasses all library format errors)
+        // DUAL-COMPATIBILITY SAFE EXTRACTOR (Bypasses all legacy and update errors)
         let extractionResult = null;
         
         if (completion && completion.choices && completion.choices[0] && completion.choices[0].message) {
-            // New array format index extraction
+            // Standard historical index extraction format
             extractionResult = completion.choices[0].message.content;
         } else if (completion && completion.choices && completion.choices.message) {
-            // Alternative layout index extraction fallback
+            // Direct object extraction layout version match
             extractionResult = completion.choices.message.content;
         }
 
@@ -139,7 +139,7 @@ async function sendWhatsAppMessage(toPhone, textMessage) {
     }
 
     try {
-        const response = axios.post(`https://wasenderapi.com`, {
+        await axios.post(`https://wasenderapi.com`, {
             instance_id: instanceId,
             token: apiToken,
             to: toPhone,
