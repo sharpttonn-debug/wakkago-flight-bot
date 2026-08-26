@@ -31,30 +31,37 @@ app.all(['/', '/flights'], async (req, res) => {
         let phone = "";
         let audioUrl = "";
 
-        // Extracting data elements based on Wasender architecture
+        // BROAD SCAN FOR ANY INCOMING AUDIO URL KEYS
         if (payload.data) {
             phone = payload.data.senderId || payload.data.from || "";
+            
             if (payload.data.message) {
-                // Check if it's a voice message or audio recording
-                if (payload.data.message.audioMessage) {
-                    audioUrl = payload.data.message.audioMessage.url || "";
-                    console.log("Voice message detected! URL:", audioUrl);
+                const msgObj = payload.data.message;
+                // Capture any possible variations of the audio field name
+                const audioBlock = msgObj.audioMessage || msgObj.audiomessage || msgObj.audio || msgObj.voice || null;
+                if (audioBlock && audioBlock.url) {
+                    audioUrl = audioBlock.url;
                 } else {
-                    msgText = payload.data.message.conversation || payload.data.message.text || "";
+                    msgText = msgObj.conversation || msgObj.text || msgObj.caption || "";
                 }
             }
             msgText = msgText || payload.data.messageBody || payload.data.msg || payload.data.body || "";
         }
 
-        // Top-level fallbacks
+        // Top-level layout parameter fallbacks
+        const topAudio = payload.audioMessage || payload.audiomessage || payload.audio || null;
+        if (topAudio && topAudio.url) audioUrl = topAudio.url;
+        
         msgText = msgText || payload.conversation || payload.messageBody || payload.text || payload.body || "";
         phone = phone || payload.chatId || payload.phone || payload.from || "";
 
-        // 3. IF VOICE MESSAGE: DOWNLOAD AND TRANSCRIBE VIA OPENAI WHISPER
+        console.log(`Extraction Phase -> Found Audio URL: "${audioUrl}" | Found Text: "${msgText}"`);
+
+        // 3. IF VOICE MESSAGE IS DETECTED: DOWNLOAD AND TRANSCRIBE VIA WHISPER
         if (audioUrl) {
             try {
-                console.log("Downloading audio file for transcription...");
-                const localAudioPath = path.join('/tmp', 'voice.ogg');
+                console.log("Downloading audio file for transcription from URL:", audioUrl);
+                const localAudioPath = path.join('/tmp', `voice-${Date.now()}.ogg`);
                 const writer = fs.createWriteStream(localAudioPath);
 
                 const response = await axios({
@@ -70,7 +77,7 @@ app.all(['/', '/flights'], async (req, res) => {
                     writer.on('error', reject);
                 });
 
-                console.log("Audio download finished. Transcribing with Whisper API...");
+                console.log("Audio download finished cleanly. Transcribing via OpenAI Whisper API...");
                 const transcription = await openai.audio.transcriptions.create({
                     file: fs.createReadStream(localAudioPath),
                     model: "whisper-1",
@@ -79,20 +86,23 @@ app.all(['/', '/flights'], async (req, res) => {
                 msgText = transcription.text;
                 console.log(`Whisper Transcribed Text: "${msgText}"`);
 
+                // Clean up local temp file path
+                if (fs.existsSync(localAudioPath)) fs.unlinkSync(localAudioPath);
+
             } catch (whisperErr) {
-                console.error("Audio Transcription failed:", whisperErr.message);
+                console.error("Audio Transcription module failed:", whisperErr.message);
             }
         }
 
         console.log(`Final Processed Message Text: "${msgText}" from Sender: ${phone}`);
 
         if (!msgText) {
-            console.log("No text or audio content found in payload. Skipping OpenAI generation.");
+            console.log("No text content could be processed. Skipping OpenAI generation.");
             return;
         }
 
         // 4. TRIGGER OPENAI GPT TO PARSE FLIGHT CRITERIA
-        console.log("Forwarding text content to OpenAI GPT...");
+        console.log("Forwarding parameters to OpenAI GPT Engine...");
         try {
             const aiRes = await openai.chat.completions.create({
                 model: "gpt-4o-mini",
@@ -107,8 +117,6 @@ app.all(['/', '/flights'], async (req, res) => {
             }, { timeout: 10000 });
 
             console.log("AI Extraction Results:", aiRes.choices.message.content);
-            
-            // --- YOUR BACKEND API OR FLIGHT BOOKING LOGIC GOES HERE ---
 
         } catch (aiError) {
             console.error("GPT Connection Error (Check your API Key settings in Render):", aiError.message);
