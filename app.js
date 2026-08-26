@@ -26,20 +26,20 @@ app.all(['/', '/flights'], async (req, res) => {
     try {
         const payload = req.body;
         
-        // 3. SECURELY EXTRACT WHATSAPP CHAT STRING (Adapts to both message formats)
+        // 3. SECURELY EXTRACT WHATSAPP CHAT STRING (Updated for Wasender structure)
         let msgText = "";
         let phone = "";
 
         if (payload.message) {
-            msgText = payload.message.text || payload.message.caption || "";
+            msgText = payload.message.text || payload.message.conversation || "";
         } else if (payload.data) {
-            msgText = payload.data.msg || payload.data.body || "";
+            msgText = payload.data.msg || payload.data.body || payload.data.conversation || "";
             phone = payload.data.phone || payload.data.from || "";
         }
 
-        // Fallback checks if elements are nested under generic body tags
-        msgText = msgText || payload.text || payload.body || "";
-        phone = phone || payload.phone || payload.from || payload.chatId || "";
+        // Deep fallback check for Wasender layout structure logs
+        msgText = msgText || payload.conversation || payload.messageBody || payload.text || payload.body || "";
+        phone = phone || payload.chatId || payload.phone || payload.from || "";
 
         console.log(`Processed Message Text: "${msgText}" from Sender: ${phone}`);
 
