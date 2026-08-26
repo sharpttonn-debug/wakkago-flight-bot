@@ -21,30 +21,37 @@ app.get('/', (req, res) => {
 
 // MAIN WEBHOOK: Listens for incoming WhatsApp messages via WaSender
 app.post('/webhook/whatsapp', async (req, res) => {
-    // 1. Instantly acknowledge message receipt to WaSender to prevent duplicate loops
+    // FORCE ACKNOWLEDGE INSTANTLY TO PREVENT DUPLICATE LOOPS
     res.sendStatus(200);
+
+    // CRITICAL DIAGNOSTIC: This will print regardless of data structure
+    console.log("🚨 WEBHOOK HIT! Connection from WaSender confirmed.");
+    console.log("📦 Received Data Object:", JSON.stringify(req.body));
 
     try {
         const payload = req.body;
-        console.log("📥 Incoming WaSender Webhook Payload:", JSON.stringify(payload));
-
-        // Adjust paths safely based on WaSender payload configuration structure
-        const incomingMsg = payload.message || payload.data || payload;
-        const sender = payload.sender || payload.contact || {};
-
-        const userPhone = incomingMsg.from || incomingMsg.phone || sender.phone;
-        const userText = incomingMsg.text || incomingMsg.body || (incomingMsg.message ? incomingMsg.message.text : null);
-
-        if (!userPhone || !userText) {
-            console.log("⚠️ Skipping payload: Missing phone number or text body.");
+        if (!payload || Object.keys(payload).length === 0) {
+            console.log("⚠️ Webhook received completely empty data fields.");
             return;
         }
 
-        // 2. Pass data forward to processing engine
-        await processFlightBotFlow(userPhone.trim(), userText.trim());
+        // Broad fallback extraction paths to match any variation of WaSender payload schemas
+        const incomingMsg = payload.message || payload.data || payload;
+        const sender = payload.sender || payload.contact || {};
+
+        const userPhone = incomingMsg.from || incomingMsg.phone || sender.phone || payload.wid || payload.from;
+        const userText = incomingMsg.text || incomingMsg.body || (incomingMsg.message ? incomingMsg.message.text : null) || payload.messageText;
+
+        if (!userPhone || !userText) {
+            console.log(`⚠️ Data extraction skipped. Parsed Phone: [${userPhone}], Parsed Text: [${userText}]`);
+            return;
+        }
+
+        // Pass parsed string attributes forward to processing engine
+        await processFlightBotFlow(String(userPhone).trim(), String(userText).trim());
 
     } catch (err) {
-        console.error("❌ Webhook processing error:", err.message);
+        console.error("❌ Error parsing webhook dataset details:", err.message);
     }
 });
 
@@ -52,7 +59,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
 async function processFlightBotFlow(phone, text) {
     console.log(`💬 Processing message from [${phone}]: "${text}"`);
 
-    // Clean greeting triggers to wake up the assistant
     const lowerText = text.toLowerCase();
     const isGreeting = ['hi', 'hello', 'hey', 'start', 'menu', 'wakkago'].some(word => lowerText === word);
 
@@ -69,7 +75,7 @@ async function processFlightBotFlow(phone, text) {
         console.log("🤖 Forwarding user input text directly to OpenAI extraction parsing...");
 
         const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini", // Cost-effective, high-speed structured extraction model
+            model: "gpt-4o-mini",
             messages: [
                 {
                     role: "system",
@@ -83,31 +89,28 @@ async function processFlightBotFlow(phone, text) {
             temperature: 0.1
         });
 
-        // FIXED: Added absolute [0] index array guardrails to strictly match OpenAI latest SDK response layouts
+        // FIXED ARRAY ACCESSIBILITY GUARDRAILS
         if (completion && completion.choices && completion.choices[0] && completion.choices[0].message) {
             const extractionResult = completion.choices[0].message.content.trim();
             console.log("🎉 ENGINE SUCCESS! AI Extraction Results:", extractionResult);
 
-            // Parse text values safely into an executable data object
             let flightData;
             try {
                 flightData = JSON.parse(extractionResult);
             } catch (jsonErr) {
-                // Fallback clean if markdown codeblocks leak through system prompts
                 const cleanJson = extractionResult.replace(/```json|```/g, "").trim();
                 flightData = JSON.parse(cleanJson);
             }
 
-            // Route next step to user based on parameters collected
             if (flightData.origin && flightData.destination && flightData.departure_date) {
-                const confirmationMsg = `✅ *Flight Search Confirmed!*\n\n🛫 *From:* ${flightData.origin}\n🛬 *To:* ${flightData.destination}\n📅 *Date:* ${flightData.departure_date}\n\n🔎 _Searching available flights across Wakkago systems. Please hold on..._`;
+                const confirmationMsg = `✅ *Flight Search Confirmed!*\n\n🛫 *From:* ${flightData.origin}\n🛬 *To:* ${flightData.destination}\n📅 *Date:* ${flightData.departure_date}\n\n_Searching available flights across Wakkago systems..._`;
                 await sendWhatsAppMessage(phone, confirmationMsg);
 
                 // --- INTEGRATE YOUR WAKKAGO API / LIVE FLIGHT SEARCH LOGIC HERE ---
                 
-                delete userSessions[phone]; // Clean session memory on terminal loops
+                delete userSessions[phone]; 
             } else {
-                const missingMsg = "⚠️ I couldn't capture all flight parameters clearly. Please make sure to specify your *Origin*, *Destination*, and *Departure Date* details explicitly.";
+                const missingMsg = "⚠️ I couldn't capture all flight parameters clearly. Please specify your *Origin*, *Destination*, and *Departure Date* explicitly.";
                 await sendWhatsAppMessage(phone, missingMsg);
             }
 
@@ -132,7 +135,6 @@ async function sendWhatsAppMessage(toPhone, textMessage) {
     }
 
     try {
-        // Adjust endpoint route structure to match your target WaSender deployment service format
         const response = await axios.post(`https://wasenderapi.com`, {
             instance_id: instanceId,
             token: apiToken,
@@ -146,7 +148,7 @@ async function sendWhatsAppMessage(toPhone, textMessage) {
 }
 
 // Port Configuration binding for cloud infrastructure stability
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🏁 Server fully initialized. Listening locally on port ${PORT}`);
 });
