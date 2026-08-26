@@ -11,46 +11,55 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
-// Temporary session tracker
+// Temporary session state manager
 const userSessions = {};
 
-// Root Route for Health Check
+// Root Route for Base Infrastructure Health Checks
 app.get('/', (req, res) => {
-    res.status(200).send('🚀 Wakkago Flight Automation Backend is running live!');
+    res.status(200).send('🚀 Wakkago Flight Automation Engine is fully online!');
 });
 
-// MAIN WEBHOOK: Listens for incoming WhatsApp messages via WaSender
+// MAIN WEBHOOK LINK: Listens for incoming WhatsApp messages
 app.post('/webhook/whatsapp', async (req, res) => {
-    // Instantly acknowledge message receipt to WaSender
+    // 1. Force acknowledge instantly back to WaSender gateway
     res.sendStatus(200);
+
+    // 2. EMERGENCY DIAGNOSTIC LOG (Will trigger on ANY connection attempt)
+    console.log("🚨 RECEIVING INCOMING TRAFFIC! Webhook contact from WaSender verified.");
+    console.log("📦 RAW PAYLOAD RECEIVED:", JSON.stringify(req.body));
 
     try {
         const payload = req.body;
-        console.log("📥 Incoming WaSender Webhook Payload:", JSON.stringify(payload));
-
-        const incomingMsg = payload.message || payload.data || payload;
-        const sender = payload.sender || payload.contact || {};
-
-        const userPhone = incomingMsg.from || incomingMsg.phone || sender.phone;
-        const userText = incomingMsg.text || incomingMsg.body || (incomingMsg.message ? incomingMsg.message.text : null);
-
-        if (!userPhone || !userText) {
-            console.log("⚠️ Skipping payload: Missing phone number or text body.");
+        if (!payload || Object.keys(payload).length === 0) {
+            console.log("⚠️ Payload rejected: Webhook packet contains empty body fields.");
             return;
         }
 
-        await processFlightBotFlow(userPhone.trim(), userText.trim());
+        // Exhaustive structural fallbacks to find phone & message across all WaSender variants
+        const dataContainer = payload.message || payload.data || payload;
+        const contactDetails = payload.sender || payload.contact || {};
+
+        const userPhone = dataContainer.from || dataContainer.phone || contactDetails.phone || payload.wid || payload.from;
+        const userText = dataContainer.text || dataContainer.body || (dataContainer.message ? dataContainer.message.text : null) || payload.messageText;
+
+        if (!userPhone || !userText) {
+            console.log(`⚠️ Pipeline skipped: Unable to capture standard target keys. Phone: [${userPhone}], Text: [${userText}]`);
+            return;
+        }
+
+        // 3. Forward parameters to processing workflow
+        await processFlightBotFlow(String(userPhone).trim(), String(userText).trim());
 
     } catch (err) {
-        console.error("❌ Webhook processing error:", err.message);
+        console.error("❌ Webhook crash exception encountered:", err.message);
     }
 });
 
-// CORE FLOW ENGINE: Manages AI extractions and state workflow routing
+// SYSTEM WORKFLOW ROUTING ENGINE
 async function processFlightBotFlow(phone, text) {
-    console.log(`💬 Processing message from [${phone}]: "${text}"`);
+    console.log(`💬 Processing incoming string payload from [${phone}]: "${text}"`);
 
-    const lowerText = text.toLowerCase();
+    const lowerText = text.toLowerCase().trim();
     const isGreeting = ['hi', 'hello', 'hey', 'start', 'menu', 'wakkago'].some(word => lowerText === word);
 
     if (isGreeting || !userSessions[phone]) {
@@ -64,12 +73,12 @@ async function processFlightBotFlow(phone, text) {
     try {
         console.log("🤖 Forwarding user input text directly to OpenAI extraction parsing...");
 
-        const aiRes = await openai.chat.completions.create({
+        const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 {
                     role: "system",
-                    content: "You are a data extraction assistant for Wakkago.com flights. Extract the origin city, destination city, and departure date from the user text. Respond strictly with a clean, raw valid JSON block containing fields: origin, destination, departure_date. Use YYYY-MM-DD format for date. If the year is omitted, assume the next upcoming instance of that month. If missing any field, set its value to null. Do not include markdown wraps like ```json or any conversational text."
+                    content: "Extract origin, destination, and departure_date from the user text as clean JSON. Use format YYYY-MM-DD for dates. Set missing fields to null. Do not include markdown blocks."
                 },
                 {
                     role: "user",
@@ -79,35 +88,47 @@ async function processFlightBotFlow(phone, text) {
             temperature: 0.1
         });
 
-        // ⚠️ ORIGINAL CODE PLACEMENT: Reverted to the exact layout from your previous code setup
-        const extractionResult = aiRes.choices.message.content;
-        console.log("🎉 ENGINE SUCCESS! AI Extraction Results:", extractionResult);
+        // DUAL-COMPATIBILITY SAFE EXTRACTOR (Bypasses all library format errors)
+        let extractionResult = null;
         
-        let flightData;
-        try {
-            flightData = JSON.parse(extractionResult);
-        } catch (jsonErr) {
-            const cleanJson = extractionResult.replace(/```json|```/g, "").trim();
-            flightData = JSON.parse(cleanJson);
+        if (completion && completion.choices && completion.choices[0] && completion.choices[0].message) {
+            // New array format index extraction
+            extractionResult = completion.choices[0].message.content;
+        } else if (completion && completion.choices && completion.choices.message) {
+            // Alternative layout index extraction fallback
+            extractionResult = completion.choices.message.content;
         }
 
-        if (flightData.origin && flightData.destination && flightData.departure_date) {
-            const confirmationMsg = `✅ *Flight Search Confirmed!*\n\n🛫 *From:* ${flightData.origin}\n🛬 *To:* ${flightData.destination}\n📅 *Date:* ${flightData.departure_date}\n\n_Searching available flights across Wakkago systems. Please hold on..._`;
-            await sendWhatsAppMessage(phone, confirmationMsg);
-            
-            delete userSessions[phone];
+        if (extractionResult) {
+            console.log("🎉 ENGINE SUCCESS! AI Extraction Results:", extractionResult);
+
+            let flightData;
+            try {
+                flightData = JSON.parse(extractionResult.trim());
+            } catch (jsonErr) {
+                const cleanJson = extractionResult.replace(/```json|```/g, "").trim();
+                flightData = JSON.parse(cleanJson);
+            }
+
+            if (flightData.origin && flightData.destination && flightData.departure_date) {
+                const confirmationMsg = `✅ *Flight Search Confirmed!*\n\n🛫 *From:* ${flightData.origin}\n🛬 *To:* ${flightData.destination}\n📅 *Date:* ${flightData.departure_date}\n\n_Searching available flights across Wakkago systems. Please hold on..._`;
+                await sendWhatsAppMessage(phone, confirmationMsg);
+                
+                delete userSessions[phone]; 
+            } else {
+                await sendWhatsAppMessage(phone, "⚠️ I couldn't capture all flight parameters clearly. Please verify your *Origin*, *Destination*, and *Departure Date* details.");
+            }
         } else {
-            const missingMsg = "⚠️ I couldn't capture all flight parameters clearly. Please make sure to specify your *Origin*, *Destination*, and *Departure Date* details explicitly.";
-            await sendWhatsAppMessage(phone, missingMsg);
+            console.error("⚠️ Extraction Aborted: OpenAI returned an empty response structure.");
         }
 
     } catch (openAiError) {
         console.error("❌ OpenAI API Session Connection Failed:", openAiError.message);
-        await sendWhatsAppMessage(phone, "⚠️ Sorry, I am experiencing network synchronization delays parsing your flight schedule. Please try again in a few moments.");
+        await sendWhatsAppMessage(phone, "⚠️ Sorry, I am experiencing network synchronization delays parsing your flight schedule.");
     }
 }
 
-// OUTBOUND DELIVERY GATEWAY
+// OUTBOUND DELIVERY GATEWAY VIA WASENDER
 async function sendWhatsAppMessage(toPhone, textMessage) {
     const instanceId = process.env.WASENDER_INSTANCE_ID;
     const apiToken = process.env.WASENDER_API_TOKEN;
@@ -118,15 +139,15 @@ async function sendWhatsAppMessage(toPhone, textMessage) {
     }
 
     try {
-        const response = await axios.post(`https://wasenderapi.com`, {
+        const response = axios.post(`https://wasenderapi.com`, {
             instance_id: instanceId,
             token: apiToken,
             to: toPhone,
             body: textMessage
         });
-        console.log(`📤 Dispatching WhatsApp reply out via WaSender to [${toPhone}]: Status ${response.status}`);
+        console.log(`📤 Dispatching WhatsApp reply out via WaSender to [${toPhone}]`);
     } catch (err) {
-        console.error(`❌ Outbound WaSender Delivery Failed to [${toPhone}]:`, err.response ? err.response.data : err.message);
+        console.error(`❌ Outbound WaSender Delivery Failed:`, err.message);
     }
 }
 
