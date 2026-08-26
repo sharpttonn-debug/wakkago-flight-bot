@@ -11,14 +11,40 @@ app.use(express.json());
 // Secure initialization of the OpenAI Client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Dynamic layout extraction helpers
+// FIX: Bulletproof text scanner that handles objects, arrays, and fallbacks cleanly
 function findMessageText(obj) {
     if (!obj || typeof obj !== 'object') return "";
-    return obj.conversation || obj.text || obj.messageBody || obj.body || obj.msg || "";
+    
+    // If it's an array (like message: [ ... ] in your logs), scan the first item
+    if (Array.isArray(obj)) {
+        for (let item of obj) {
+            let res = findMessageText(item);
+            if (res) return res;
+        }
+    }
+
+    // Direct key extractions
+    let text = obj.messageBody || obj.conversation || obj.text || obj.body || obj.msg || "";
+    if (text) return text;
+
+    // Deep scanning nested objects
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {
+            let result = findMessageText(obj[key]);
+            if (result) return result;
+        }
+    }
+    return "";
 }
 
 function findAudioUrl(obj) {
     if (!obj || typeof obj !== 'object') return null;
+    if (Array.isArray(obj)) {
+        for (let item of obj) {
+            let res = findAudioUrl(item);
+            if (res) return res;
+        }
+    }
     if (obj.url && (obj.mimetype?.includes('audio') || obj.waveform || obj.seconds)) {
         return obj.url;
     }
@@ -45,17 +71,12 @@ app.all(['/', '/flights'], async (req, res) => {
     try {
         const payload = req.body;
         
+        // 1. EXTRACT DATA VALUES USING NEW ARRAY-SAFE SCANNERS
+        let msgText = findMessageText(payload);
         let audioUrl = findAudioUrl(payload);
-        let msgText = findMessageText(payload.data?.message || payload.data || payload);
         let phone = payload.data?.senderId || payload.data?.from || payload.chatId || "Unknown";
 
         console.log(`Smart Scanner -> Found Audio Link: "${audioUrl}" | Found Text String: "${msgText}"`);
-
-        // If audio exists, log the discovery but prioritize textual payloads to avoid media download blocks
-        if (audioUrl && !msgText) {
-            console.log("Audio payload received. Direct media download streams require token authorization headers.");
-            msgText = "Check flights from Abuja to London on September 21st"; // Testing placeholder to bypass media download bugs
-        }
 
         console.log(`Processing Text Context: "${msgText}" for Customer: ${phone}`);
 
