@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 
 // Initialize OpenAI configuration safely
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "DUMMY_KEY" });
 
 // Universal route handling both root '/' and '/flights' for WasenderAPI webhooks
 app.all(['/', '/flights'], async (req, res) => {
@@ -30,54 +30,53 @@ app.all(['/', '/flights'], async (req, res) => {
         let msgText = "";
         let phone = "";
 
-        // Check if data block exists (This matches your logs precisely)
         if (payload.data) {
             phone = payload.data.senderId || payload.data.from || "";
-            
-            // Extract from message object if it exists inside data
             if (payload.data.message) {
                 msgText = payload.data.message.conversation || payload.data.message.text || "";
             }
-            
-            // Fallback to top-level data keys if nested object is missing
             msgText = msgText || payload.data.messageBody || payload.data.msg || payload.data.body || "";
         }
 
-        // Final safety fallbacks for top-level payload attributes
         msgText = msgText || payload.conversation || payload.messageBody || payload.text || payload.body || "";
         phone = phone || payload.chatId || payload.phone || payload.from || "";
 
         console.log(`Processed Message Text: "${msgText}" from Sender: ${phone}`);
 
-        // If there's no actual text message content, halt execution quietly
         if (!msgText) {
             console.log("No text content found in payload. Skipping OpenAI generation.");
             return;
         }
 
-        // 4. TRIGGER OPENAI TO PARSE FLIGHT CRITERIA
-        const aiRes = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { 
-                    role: "system", 
-                    content: "Extract parameters from text. Output JSON with keys: origin, destination, date. Use null if missing." 
-                },
-                { role: "user", content: msgText }
-            ],
-            response_format: { type: "json_object" }
-        });
-
-        console.log("AI Extraction Results:", aiRes.choices.message.content);
+        // 4. TRIGGER OPENAI WITH PROTECTIVE TIMEOUT TO PREVENT FREEZING
+        console.log("Forwarding data to OpenAI API...");
         
-        // --- YOUR BACKEND API OR FLIGHT BOOKING LOGIC GOES HERE ---
+        try {
+            const aiRes = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    { 
+                        role: "system", 
+                        content: "Extract parameters from text. Output JSON with keys: origin, destination, date. Use null if missing." 
+                    },
+                    { role: "user", content: msgText }
+                ],
+                response_format: { type: "json_object" }
+            }, { timeout: 10000 }); // Automatically cancels if OpenAI hangs for 10 seconds
+
+            console.log("AI Extraction Results:", aiRes.choices.message.content);
+            
+            // --- YOUR BACKEND API OR FLIGHT BOOKING LOGIC GOES HERE ---
+
+        } catch (aiError) {
+            console.error("OPENAI CONNECTION ERROR (Check your API Key settings in Render):", aiError.message);
+        }
 
     } catch (error) {
         console.error("CRITICAL ERROR IN WEBHOOK LOOP:", error.message);
     }
 });
 
-// Bind server dynamically to Render's required network port
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`Wakkago Flight Bot Server listening perfectly on port ${PORT}`);
