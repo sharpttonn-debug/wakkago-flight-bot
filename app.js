@@ -10,78 +10,69 @@ app.use(express.json());
 const PORT = process.env.PORT || 10000;
 const WASENDER_TOKEN = process.env.WASENDER_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-// Official endpoint target matching your active dashboard instance CLI string layout
 const WASENDER_API_URL = 'https://wasenderapi.com'; 
 
-// 1. Core HTTP Browser Landing Route Verification
+// 1. Browser Health Check Route
 app.get('/', (req, res) => {
-    res.status(200).send('🚀 Wakkago Production Automation Engine is Live & Syncing!');
+    res.status(200).send('🚀 Wakkago Production Engine is Online, Stable, and Monitoring Webhooks!');
 });
 
-// 2. Primary Webhook Entry Router Endpoint
+// 2. Core Incoming Webhook Router Endpoint
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
         console.log('=== 🔔 NEW WEBHOOK PAYLOAD INBOUND ===');
-        console.log('Raw Received Data:', JSON.stringify(req.body, null, 2));
+        console.log('Raw Received JSON:', JSON.stringify(req.body, null, 2));
 
-        // Always reply with a 200 OK immediately so WASender closes the connection cleanly
+        // Always reply with a 200 OK status immediately to acknowledge data packet receipt
         res.status(200).json({ status: 'success' });
 
-        // Fixed the property extraction path safely here
-        const incomingData = req.body?.data?.messages || req.body?.data || req.body;
+        // Safely extract the inner event object wrapper sent by WASenderAPI streams
+        const payloadData = req.body?.data?.messages || req.body?.data || req.body;
+        const msgObject = Array.isArray(payloadData) ? payloadData[0] : payloadData;
+
+        // Isolate incoming phone paths
+        let rawPhone = msgObject?.key?.remoteJid || msgObject?.from || msgObject?.phone || "";
         
-        // Extract sender parameters using explicit documented properties
-        let rawPhone = incomingData?.key?.remoteJid || 
-                       incomingData?.from || 
-                       incomingData?.phone || "";
+        // Isolate incoming text values
+        let incomingText = msgObject?.messageBody || 
+                           msgObject?.body || 
+                           msgObject?.message?.conversation || 
+                           msgObject?.text || "";
 
-        // Extract message content text strings safely
-        let incomingText = incomingData?.messageBody || 
-                           incomingData?.body || 
-                           incomingData?.message?.conversation || 
-                           incomingData?.text || "";
-
-        if (!rawPhone) {
-            console.log('🛑 Aborting: Unable to isolate clean recipient phone parameters.');
+        if (!rawPhone || !incomingText) {
+            console.log('🛑 Inbound data parsing did not match formatting criteria properties.');
             return;
         }
 
-        // Clean out WhatsApp net domain extensions if attached to the variable (e.g. 234xxx@s.whatsapp.net)
+        // Clean out WhatsApp net domain parameters if attached to variable string instances
         const senderPhone = rawPhone.includes('@') ? rawPhone.split('@')[0] : rawPhone;
-        
-        if (!incomingText || incomingText.trim() === '') {
-            console.log('🛑 Aborting: Received message content text string is empty.');
-            return;
-        }
+        console.log(`Parsed Live Target Context -> Phone: [${senderPhone}] | Message Body Text: "${incomingText}"`);
 
-        console.log(`Parsed Targets -> Phone: [${senderPhone}] | Body Text: "${incomingText}"`);
-
-        // Bypass command to test basic webhook loop functionality instantly
+        // Trigger immediate connection path verification
         if (incomingText.toLowerCase().trim() === 'test') {
-            console.log('🎯 Diagnostic test command matched! Dispatching immediate echo response card...');
+            console.log('🎯 Verification match flagged! Pushing direct response reply...');
             await sendWhatsAppMessage(senderPhone, 'Hello! Your Render web application and Wasender webhook loop is 100% active. 🚀');
             return;
         }
 
-        // Route natural text sentences over to OpenAI parsing matrix pipelines
+        // Route strings directly to OpenAI GPT parsing pipeline matrices
         console.log('🤖 Invoking OpenAI structured data schema extractor layer...');
         const searchParameters = await extractFlightDetails(incomingText);
         
         if (!searchParameters || !searchParameters.from_city || !searchParameters.to_city) {
-            console.log('⚠️ OpenAI returned an incomplete parameter map missing departure/destination values.');
+            console.log('⚠️ OpenAI returned an incomplete parameter map missing departure/destination attributes.');
             await sendWhatsAppMessage(senderPhone, "Sorry, I couldn't pick up your flight details. Please mention your origin, destination, and travel date clearly.");
             return;
         }
 
-        // Generate baseline simulated flight data array matching your parsed choices
+        // Generate baseline static itinerary block for functional verification
         const mockItineraries = [
             { airline: 'Air Peace', route: `${searchParameters.from_city.toUpperCase()} ➔ ${searchParameters.to_city.toUpperCase()} (Direct)`, price: '₦450,000' },
             { airline: 'Qatar Airways', route: `${searchParameters.from_city.toUpperCase()} ➔ ${searchParameters.to_city.toUpperCase()} (1 Stop)`, price: '₦1,250,000' }
         ];
 
         let layoutMessage = `✈️ *Available Flights on Wakkago.com*\n`;
-        layoutMessage += `📅 Travel Date: *${searchParameters.departure_date}*\n\n`;
+        layoutMessage += `📅 Date: *${searchParameters.departure_date}*\n\n`;
 
         mockItineraries.forEach((flight, index) => {
             layoutMessage += `*${index + 1}. ${flight.airline}*\n`;
@@ -90,16 +81,16 @@ app.post('/webhook/whatsapp', async (req, res) => {
             layoutMessage += `────────────────────\n`;
         });
 
-        layoutMessage += `To finalize your booking, please respond with your option choice number!`;
+        layoutMessage += `To finalize your booking, reply with your choice number!`;
 
         await sendWhatsAppMessage(senderPhone, layoutMessage);
 
     } catch (error) {
-        console.error('💥 Webhook process exception runtime exception caught:', error.message);
+        console.error('💥 Webhook internal core processing runtime fault exception:', error.message);
     }
 });
 
-// OpenAI Context Layout Schema Parser Logic
+// OpenAI JSON Structured Layout Schema Logic
 async function extractFlightDetails(userMessage) {
     try {
         const response = await axios.post('https://openai.com', {
@@ -119,9 +110,9 @@ async function extractFlightDetails(userMessage) {
                     schema: {
                         type: "object",
                         properties: {
-                            from_city: { type: "string", description: "Departure origin city name or airport code" },
-                            to_city: { type: "string", description: "Target arrival location identity metric" },
-                            departure_date: { type: "string", description: "Target travel date string formatting" }
+                            from_city: { type: "string", description: "Departure origin city name or IATA airport code" },
+                            to_city: { type: "string", description: "Target arrival destination city name or IATA code" },
+                            departure_date: { type: "string", description: "Target travel calendar date mapped cleanly" }
                         },
                         required: ["from_city", "to_city", "departure_date"],
                         additionalProperties: false
@@ -134,7 +125,7 @@ async function extractFlightDetails(userMessage) {
 
         return JSON.parse(response.data.choices.message.content);
     } catch (error) {
-        console.error('❌ OpenAI Parameter parsing layer exception:', error.message);
+        console.error('❌ OpenAI API Parameter configuration exception:', error.message);
         return null;
     }
 }
@@ -162,4 +153,4 @@ async function sendWhatsAppMessage(recipient, messageBody) {
     }
 }
 
-app.listen(PORT, () => console.log(`🚀 Flight automation engine active on internal port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Automated routing manager core online on port ${PORT}`));
