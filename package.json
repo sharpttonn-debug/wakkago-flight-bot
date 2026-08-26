@@ -1,15 +1,13 @@
 {
   "name": "wakkago-flight-bot",
   "version": "1.0.0",
-  "description": "WhatsApp Flight Search Bot",
-  "main": "app.js",
+  "type": "module",
   "scripts": {
     "start": "node app.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "openai": "^4.52.0"
+    "express": "^4.19.2"
   }
 }
