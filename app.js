@@ -6,79 +6,74 @@ const { OpenAI } = require('openai');
 const app = express();
 app.use(express.json());
 
+// Initialize OpenAI configuration safely
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Array pattern handles standard routing calls effortlessly
+// Universal route handling both root '/' and '/flights' for WasenderAPI webhooks
 app.all(['/', '/flights'], async (req, res) => {
+    // 1. PRINT RAW INCOMING DATA TO RENDER LOGS INSTANTLY
+    console.log("=== INCOMING WHATSAPP BOT PAYLOAD ===");
+    console.log(JSON.stringify(req.body, null, 2));
+
+    // Handle initial browser tests or heartbeat pings
     if (req.method === 'GET') {
         return res.send('Flight Search Bot Engine is running perfectly online!');
     }
-    
-    res.sendStatus(200);
+
+    // 2. ACKNOWLEDGE RECEIPT IMMEDIATELY TO WASENDERAPI TO PREVENT TIMEOUTS
+    res.status(200).json({ status: 'received' });
 
     try {
         const payload = req.body;
-        const msgText = payload.message?.text || payload.text || payload.body || payload.msg || (payload.data && payload.data.body);
-        const phone = payload.from || payload.phone || payload.chatId || (payload.data && payload.data.from);
+        
+        // 3. SECURELY EXTRACT WHATSAPP CHAT STRING (Adapts to both message formats)
+        let msgText = "";
+        let phone = "";
 
-        if (!msgText || !phone) return;
+        if (payload.message) {
+            msgText = payload.message.text || payload.message.caption || "";
+        } else if (payload.data) {
+            msgText = payload.data.msg || payload.data.body || "";
+            phone = payload.data.phone || payload.data.from || "";
+        }
 
+        // Fallback checks if elements are nested under generic body tags
+        msgText = msgText || payload.text || payload.body || "";
+        phone = phone || payload.phone || payload.from || payload.chatId || "";
+
+        console.log(`Processed Message Text: "${msgText}" from Sender: ${phone}`);
+
+        // If there's no actual text message content, halt execution quietly
+        if (!msgText) {
+            console.log("No text content found in payload. Skipping OpenAI generation.");
+            return;
+        }
+
+        // 4. TRIGGER OPENAI TO PARSE FLIGHT CRITERIA
         const aiRes = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-                { role: "system", content: "Extract parameters from text. Output JSON with keys: origin, destination, date. Use null if missing." },
+                { 
+                    role: "system", 
+                    content: "Extract parameters from text. Output JSON with keys: origin, destination, date. Use null if missing." 
+                },
                 { role: "user", content: msgText }
             ],
             response_format: { type: "json_object" }
         });
 
-        const params = JSON.parse(aiRes.choices.message.content);
+        console.log("AI Extraction Results:", aiRes.choices[0].message.content);
+        
+        // --- YOUR BACKEND API OR FLIGHT BOOKING LOGIC GOES HERE ---
+        // You can now query your database or call a global travel API using the parameters extracted above.
 
-        if (!params.origin || !params.destination || !params.date) {
-            await sendMsg(phone, "👋 Hello! Please provide your Departure City, Destination, and Travel Date (e.g., Abuja to London on 21 September).");
-            return;
-        }
-
-        const flights = await searchDB(params.origin, params.destination, params.date);
-        let reply = `✈️ *Available Flights!*\n📍 Route: ${params.origin.toUpperCase()} -> ${params.destination.toUpperCase()}\n📅 Date: ${params.date}\n\n`;
-
-        if (flights.length === 0) {
-            reply += "❌ No flights found on this date.";
-        } else {
-            flights.forEach((f, i) => {
-                reply += `${i + 1}️⃣ *${f.airline}*\n• Dep: ${f.dep} | Arr: ${f.arr}\n• Price: ${f.price}\n• Book: ${f.url}\n\n`;
-            });
-        }
-
-        await sendMsg(phone, reply);
-    } catch (err) {
-        console.error("Internal loop error log:", err.message);
+    } catch (error) {
+        console.error("CRITICAL ERROR IN WEBHOOK LOOP:", error.message);
     }
 });
 
-async function sendMsg(to, text) {
-    const cleanTo = String(to).split('@')[0];
-    try {
-        await axios.post('https://wasenderapi.com', {
-            device_id: process.env.WASENDER_DEVICE_ID,
-            to: cleanTo,
-            type: 'text',
-            text: text
-        }, {
-            headers: { 'Authorization': `Bearer ${process.env.WASENDER_API_KEY}` }
-        });
-    } catch (e) {
-        console.error("WASender error:", e.response?.data || e.message);
-    }
-}
-
-async function searchDB(from, to, date) {
-    return [
-        { airline: "British Airways", dep: "08:00 AM", arr: "02:30 PM", price: "₦1,200,000", url: "https://wakkago.com" },
-        { airline: "Qatar Airways", dep: "11:30 AM", arr: "09:15 PM", price: "₦950,000", url: "https://wakkago.com" }
-    ];
-}
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT);
-
+// Bind server dynamically to Render's required network port
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`Wakkago Flight Bot Server listening perfectly on port ${PORT}`);
+});
