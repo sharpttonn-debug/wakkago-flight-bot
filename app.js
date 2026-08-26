@@ -13,35 +13,58 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const WASENDER_DEVICE_ID = process.env.WASENDER_DEVICE_ID;
 const WASENDER_API_URL = 'https://wasenderapi.com'; 
 
-// 1. Browser Status Route
+// 1. HTTP Server Root Landing Check
 app.get('/', (req, res) => {
-    res.status(200).send('🚀 Wakkago Testing Engine is fully functional!');
+    res.status(200).send('🚀 Wakkago Production Engine is 100% Operational.');
 });
 
-// 2. Core Incoming Webhook Handler
+// 2. Main Routing Processing Webhook
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
-        console.log('=== 🔔 NEW LIVE PAYLOAD INBOUND ===');
-        
-        // Handle varying nested payload variants gracefully
-        const messagePayload = req.body?.data || req.body;
-        const senderPhone = messagePayload?.from || messagePayload?.phone || messagePayload?.sender;
-        const incomingText = messagePayload?.body || messagePayload?.message || messagePayload?.text;
+        console.log('=== 🔔 NEW PAYLOAD ARRIVED ===');
+        console.log('Raw Structure:', JSON.stringify(req.body, null, 2));
 
-        // Acknowledge receipt to Wasender immediately
-        res.status(200).send({ status: 'received' });
+        // Immediately send back 200 OK status to close WASender execution loops
+        res.status(200).json({ status: 'success' });
 
-        if (!incomingText || !senderPhone) return;
+        // Unpack payload layouts dynamically to catch every possible WASender structure variant
+        let incomingMessage = null;
+        if (req.body?.data?.messages && Array.isArray(req.body.data.messages)) {
+            incomingMessage = req.body.data.messages[0];
+        } else if (req.body?.data) {
+            incomingMessage = req.body.data;
+        } else {
+            incomingMessage = req.body;
+        }
 
-        console.log(`Processing -> Phone: ${senderPhone} | Text: "${incomingText}"`);
+        // Isolate message body string parameters safely
+        const incomingText = incomingMessage?.body || 
+                             incomingMessage?.message?.conversation || 
+                             incomingMessage?.message?.extendedTextMessage?.text || 
+                             incomingMessage?.text || "";
 
-        // Bypass command to verify structural connectivity
+        // Isolate target sender identification metrics
+        let rawPhone = incomingMessage?.from || 
+                       incomingMessage?.phone || 
+                       incomingMessage?.key?.remoteJid || "";
+
+        if (!incomingText || !rawPhone) {
+            console.log('🛑 Stopped: Failed to parse required message strings or phone metrics.');
+            return;
+        }
+
+        // Clean out specific session arrays if passed by server (e.g. 23470xxx@s.whatsapp.net)
+        const senderPhone = rawPhone.includes('@') ? rawPhone.split('@')[0] : rawPhone;
+        console.log(`Parsed Context -> Sender: [${senderPhone}] | Body Text: "${incomingText}"`);
+
+        // Check verification command
         if (incomingText.toLowerCase().trim() === 'test') {
             await sendWhatsAppMessage(senderPhone, 'Hello! Your Render web application and Wasender webhook loop is 100% active. 🚀');
             return;
         }
 
-        // Send text to OpenAI to parse search requirements
+        // Route strings directly to OpenAI 
+        console.log('🤖 Parsing input text data layout using OpenAI LLM engine...');
         const searchParameters = await extractFlightDetails(incomingText);
         
         if (!searchParameters || !searchParameters.from_city || !searchParameters.to_city) {
@@ -49,33 +72,32 @@ app.post('/webhook/whatsapp', async (req, res) => {
             return;
         }
 
-        // Simulate flight data results based on parsed parameters
+        // Simulate flight itineraries matching your destination targets
         const mockItineraries = [
-            { airline: 'Air Peace', route: `${searchParameters.from_city} ➔ ${searchParameters.to_city} (Direct)`, price: '₦450,000' },
-            { airline: 'Qatar Airways', route: `${searchParameters.from_city} ➔ ${searchParameters.to_city} (1 Stop)`, price: '₦1,250,000' }
+            { airline: 'Air Peace', route: `${searchParameters.from_city.toUpperCase()} ➔ ${searchParameters.to_city.toUpperCase()} (Direct)`, price: '₦450,000' },
+            { airline: 'Qatar Airways', route: `${searchParameters.from_city.toUpperCase()} ➔ ${searchParameters.to_city.toUpperCase()} (1 Stop)`, price: '₦1,250,000' }
         ];
 
-        // Format a clean, human-readable WhatsApp itinerary responsecard
-        let responseCard = `✈️ *Available Flights on Wakkago.com*\n`;
-        responseCard += `📅 Travel Date: *${searchParameters.departure_date}*\n\n`;
+        let messageTemplate = `✈️ *Available Flights on Wakkago.com*\n`;
+        messageTemplate += `📅 Date: *${searchParameters.departure_date}*\n\n`;
 
         mockItineraries.forEach((flight, index) => {
-            responseCard += `*${index + 1}. ${flight.airline}*\n`;
-            responseCard += `🔄 Route: ${flight.route}\n`;
-            responseCard += `💰 Price: ${flight.price}\n`;
-            responseCard += `────────────────────\n`;
+            messageTemplate += `*${index + 1}. ${flight.airline}*\n`;
+            messageTemplate += `🔄 Route: ${flight.route}\n`;
+            messageTemplate += `💰 Price: ${flight.price}\n`;
+            messageTemplate += `────────────────────\n`;
         });
 
-        responseCard += `To finalize booking, reply with your choice number!`;
+        messageTemplate += `To finalize booking, reply with your choice number!`;
 
-        await sendWhatsAppMessage(senderPhone, responseCard);
+        await sendWhatsAppMessage(senderPhone, messageTemplate);
 
     } catch (error) {
-        console.error('Webhook Error:', error.message);
+        console.error('💥 Webhook runtime crash safely caught:', error.message);
     }
 });
 
-// OpenAI Structural Extractor Layer
+// OpenAI parsing function
 async function extractFlightDetails(userMessage) {
     try {
         const response = await axios.post('https://openai.com', {
@@ -95,9 +117,9 @@ async function extractFlightDetails(userMessage) {
                     schema: {
                         type: "object",
                         properties: {
-                            from_city: { type: "string", description: "Departure city name or IATA code" },
-                            to_city: { type: "string", description: "Arrival destination city name or IATA code" },
-                            departure_date: { type: "string", description: "Travel calendar date" }
+                            from_city: { type: "string", description: "Departure city or IATA tag" },
+                            to_city: { type: "string", description: "Target arrival location identity" },
+                            departure_date: { type: "string", description: "Target travel date string" }
                         },
                         required: ["from_city", "to_city", "departure_date"],
                         additionalProperties: false
@@ -110,12 +132,12 @@ async function extractFlightDetails(userMessage) {
 
         return JSON.parse(response.data.choices.message.content);
     } catch (error) {
-        console.error('OpenAI Error:', error.message);
+        console.error('❌ OpenAI Interruption Error:', error.message);
         return null;
     }
 }
 
-// Outbound Response Delivery Engine
+// Outbound API Caller Delivery Interface 
 async function sendWhatsAppMessage(recipient, messageBody) {
     try {
         const payload = {
@@ -128,16 +150,19 @@ async function sendWhatsAppMessage(recipient, messageBody) {
             payload.device_id = WASENDER_DEVICE_ID;
         }
 
-        await axios.post(WASENDER_API_URL, payload, {
+        console.log(`📤 Dispatching payload schema to WASender:`, JSON.stringify(payload));
+
+        const response = await axios.post(WASENDER_API_URL, payload, {
             headers: { 
                 'Authorization': `Bearer ${WASENDER_TOKEN}`,
                 'Content-Type': 'application/json'
             }
         });
-        console.log(`✅ Response dispatched to ${recipient}`);
+
+        console.log(`✅ Outbound execution accepted status:`, response.data);
     } catch (error) {
-        console.error('❌ Outbound Network Error:', error.response?.data || error.message);
+        console.error('❌ Outbound Network Error Response:', error.response?.data || error.message);
     }
 }
 
-app.listen(PORT, () => console.log(`Server executing flawlessly on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Automation pipeline running live on port ${PORT}`));
