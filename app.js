@@ -1,4 +1,3 @@
-
 import express from 'express';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -29,8 +28,8 @@ app.post('/webhook/whatsapp', async (req, res) => {
         // Always reply with a 200 OK immediately so WASender closes the connection cleanly
         res.status(200).json({ status: 'success' });
 
-        // Safely capture payload models from deep nested structures or flat objects
-        const incomingData = req.body?.data?.messages?.[0] || req.body?.data || req.body;
+        // Fixed the property extraction path safely here
+        const incomingData = req.body?.data?.messages || req.body?.data || req.body;
         
         // Extract sender parameters using explicit documented properties
         let rawPhone = incomingData?.key?.remoteJid || 
