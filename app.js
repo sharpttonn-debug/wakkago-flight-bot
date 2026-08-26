@@ -26,18 +26,24 @@ app.all(['/', '/flights'], async (req, res) => {
     try {
         const payload = req.body;
         
-        // 3. SECURELY EXTRACT WHATSAPP CHAT STRING (Updated for Wasender structure)
+        // 3. SECURELY EXTRACT WHATSAPP CHAT STRING (Directly matched to your live logs)
         let msgText = "";
         let phone = "";
 
-        if (payload.message) {
-            msgText = payload.message.text || payload.message.conversation || "";
-        } else if (payload.data) {
-            msgText = payload.data.msg || payload.data.body || payload.data.conversation || "";
-            phone = payload.data.phone || payload.data.from || "";
+        // Check if data block exists (This matches your logs precisely)
+        if (payload.data) {
+            phone = payload.data.senderId || payload.data.from || "";
+            
+            // Extract from message object if it exists inside data
+            if (payload.data.message) {
+                msgText = payload.data.message.conversation || payload.data.message.text || "";
+            }
+            
+            // Fallback to top-level data keys if nested object is missing
+            msgText = msgText || payload.data.messageBody || payload.data.msg || payload.data.body || "";
         }
 
-        // Deep fallback check for Wasender layout structure logs
+        // Final safety fallbacks for top-level payload attributes
         msgText = msgText || payload.conversation || payload.messageBody || payload.text || payload.body || "";
         phone = phone || payload.chatId || payload.phone || payload.from || "";
 
@@ -62,10 +68,9 @@ app.all(['/', '/flights'], async (req, res) => {
             response_format: { type: "json_object" }
         });
 
-        console.log("AI Extraction Results:", aiRes.choices[0].message.content);
+        console.log("AI Extraction Results:", aiRes.choices.message.content);
         
         // --- YOUR BACKEND API OR FLIGHT BOOKING LOGIC GOES HERE ---
-        // You can now query your database or call a global travel API using the parameters extracted above.
 
     } catch (error) {
         console.error("CRITICAL ERROR IN WEBHOOK LOOP:", error.message);
