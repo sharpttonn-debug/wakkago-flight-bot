@@ -7,30 +7,30 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Render auto-provisions the correct PORT environment metric
+// Render automatically provisions the correct port
 const PORT = process.env.PORT || 10000;
+const MY_SERVER_URL = 'https://wakkago-flight-bot.onrender.com';
 
-// Gather security parameters loaded directly from your Render Environment panel
+// Security and account credentials loaded directly from your Render panel
 const WASENDER_TOKEN = process.env.WASENDER_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const WASENDER_DEVICE_ID = process.env.WASENDER_DEVICE_ID;
 
-// Correct base route for your specific system instance model
+// Target API endpoint for your specific Wasender platform version
 const WASENDER_API_URL = 'https://wasenderapi.com'; 
 
-// 1. Core Web Browser Landing Status Check
+// 1. Browser Status Check
 app.get('/', (req, res) => {
-    res.status(200).send('🚀 Wakkago Automation Pipeline is fully online and ready!');
+    res.status(200).send(`🚀 Wakkago Automation Pipeline is fully online and ready at ${MY_SERVER_URL}!`);
 });
 
-// 2. Main Live Inbound Webhook Processing Layer
+// 2. Incoming WASender Webhook Endpoint
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
         console.log('=== 🔔 NEW LIVE WEBHOOK PAYLOAD INBOUND ===');
         console.log('Incoming JSON Structure:', JSON.stringify(req.body, null, 2));
 
-        // Wasender standard structured webhook layout parameters
-        // It typically maps inside a payload event container structure
+        // Dynamically unpack varying nested object variants from Wasender payload
         const messagePayload = req.body?.data || req.body;
         
         const senderPhone = messagePayload?.from || messagePayload?.phone || messagePayload?.sender;
@@ -38,32 +38,32 @@ app.post('/webhook/whatsapp', async (req, res) => {
 
         console.log(`Parsed Data Extracted -> Phone: [${senderPhone}] | Message Text: "${incomingText}"`);
 
-        // Acknowledge receipt back to Wasender immediately to close the network connection loop cleanly
-        res.status(200).send({ status: 'received' });
+        // Acknowledge receipt back to Wasender immediately to prevent message delivery timeouts
+        res.status(200).send({ status: 'received', listener: `${MY_SERVER_URL}/webhook/whatsapp` });
 
         if (!incomingText || !senderPhone) {
-            console.log('🛑 Aborting: Request text payload or sender metadata is completely empty.');
+            console.log('🛑 Aborting: Message text content or sender tracking data is completely empty.');
             return;
         }
 
-        // Immediate bypass command rule to verify that Render can reply back via Wasender successfully
+        // Direct bypass keyword rule to test end-to-end messaging pipeline instantly
         if (incomingText.toLowerCase().trim() === 'test') {
-            console.log('🎯 "test" match triggered! Dispatching instant echo response...');
+            console.log('🎯 "test" match triggered! Dispatching immediate echo response...');
             await sendWhatsAppMessage(senderPhone, 'Hello! Your Render web application and Wasender webhook loop is 100% active. 🚀');
             return;
         }
 
-        // Pass standard natural sentences to OpenAI execution engine to translate human text to JSON parameters
-        console.log('🤖 Sending message to OpenAI parsing layer...');
+        // Pass natural expressions to OpenAI to isolate search variables into clean JSON fields
+        console.log('🤖 Forwarding data payload to OpenAI parsing layer...');
         const searchParameters = await extractFlightDetails(incomingText);
         
         if (!searchParameters || !searchParameters.from_city || !searchParameters.to_city) {
-            console.log('⚠️ OpenAI was unable to clearly parse the departure locations and dates.');
+            console.log('⚠️ OpenAI failed to identify clean destination parameters.');
             await sendWhatsAppMessage(senderPhone, "Sorry, I couldn't pick up your flight details. Please mention your origin, destination, and travel date clearly.");
             return;
         }
 
-        // Format a beautiful markdown text confirmation response block to push straight to the client
+        // Return a beautiful confirmation template detailing what the bot parsed
         let confirmationCard = `✈️ *Wakkago Flight Engine parsing test:*\n\n`;
         confirmationCard += `🛫 From: *${searchParameters.from_city}*\n`;
         confirmationCard += `🛬 To: *${searchParameters.to_city}*\n`;
@@ -73,14 +73,14 @@ app.post('/webhook/whatsapp', async (req, res) => {
         await sendWhatsAppMessage(senderPhone, confirmationCard);
 
     } catch (error) {
-        console.error('💥 Webhook Global Error:', error.message);
+        console.error('💥 Webhook Global Error Exception:', error.message);
         if (!res.headersSent) {
-            res.sendStatus(200); // Fail gracefully so webhook pipelines don't loop endlessly
+            res.sendStatus(200); // Fail gracefully to keep webhook streaming loops clear
         }
     }
 });
 
-// OpenAI JSON Structured Layout Engine Configuration
+// OpenAI JSON Layout Schema Parser Model
 async function extractFlightDetails(userMessage) {
     try {
         const response = await axios.post('https://openai.com', {
@@ -129,7 +129,7 @@ async function sendWhatsAppMessage(recipient, messageBody) {
             text: messageBody
         };
 
-        // Explicitly include device context parameter if present inside your Render profile dashboard variables
+        // Explicitly include device contexts if required by your Wasender profile variables
         if (WASENDER_DEVICE_ID) {
             payload.device_id = WASENDER_DEVICE_ID;
         }
